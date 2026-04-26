@@ -13,11 +13,8 @@
 [![Python](https://img.shields.io/badge/Python-3.x-blue?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 
 
-## 🖼️ Recover Your Photos
-3 ways to repair JPEG::
-- 🧩 Extract thumbnails  
-- 🛠️ Replace header (FF D8…FF DA)  
-- 🔗 Concatenate MCUs
+## ???
+???
 
 Learn From: ???
 
